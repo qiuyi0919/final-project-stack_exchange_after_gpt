@@ -32,30 +32,35 @@ Beyond the raw ETL, the analysis pipeline involves distributed filtering and agg
 **Qiuyi** was responsible for the data ingestion, ETL pipeline, and CQI feature construction infrastructure. **Yanjing** was responsible for exploratory data analysis, regression discontinuity estimation, machine learning, visualization, and the deployed API and dashboard.
 
 ```mermaid
-flowchart TD
-    RAW["🗜️ Stack Overflow Archive\n60M+ posts · 7z compressed"]
+flowchart LR
+    RAW["Stack Overflow Archive\n60M+ posts · 7z"]
 
     subgraph Q ["Part 1 — Data Ingestion & ETL · Qiuyi"]
-        S3["☁️ S3 Batches\nposts_batch_*.xml.gz"]
-        LAMBDA["⚡ AWS Lambda\nDynamoDB manifest · SQS queue"]
-        EMR["⚙️ PySpark on AWS EMR\nXML parse · CQI features · tier tagging"]
+        direction TB
+        S3["S3 Batches\nposts_batch_*.xml.gz"]
+        LAMBDA["AWS Lambda\nDynamoDB · SQS"]
+        EMR["PySpark on EMR\nXML parse · CQI features"]
+        S3 --> LAMBDA --> EMR
     end
 
-    PARQUET[("📦 posts_cqi_with_tier\n2.6M Python posts · Parquet by year_month")]
+    PARQUET[("posts_cqi_with_tier\n2.6M posts · Parquet")]
 
     subgraph Y ["Part 2 — Analysis, ML & Deployment · Yanjing"]
-        EDA["🔍 Dask EDA\nmonthly trends · distributions"]
-        RDD["📈 Spark RDD Regression\n15 tier × category estimates"]
-        ML["🤖 Spark ML\nSupervised · KMeans clustering"]
-        DASH["🌐 FastAPI + SQLite\nInteractive Dashboard on Render"]
+        direction TB
+        EDA["Dask EDA"]
+        RDD["Spark RDD\nRegression Discontinuity"]
+        ML["Spark ML\nSupervised + KMeans"]
+        DASH["FastAPI + SQLite\nDashboard on Render"]
+        EDA --> DASH
+        RDD --> DASH
+        ML --> DASH
     end
 
-    RAW -->|stream & split| S3
-    S3 -->|S3 event trigger| LAMBDA
-    LAMBDA -->|SQS batch messages| EMR
+    RAW --> S3
     EMR --> PARQUET
-    PARQUET --> EDA & RDD & ML
-    EDA & RDD & ML --> DASH
+    PARQUET --> EDA
+    PARQUET --> RDD
+    PARQUET --> ML
 ```
 
 ---
