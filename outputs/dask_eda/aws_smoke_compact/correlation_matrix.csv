@@ -1,0 +1,7 @@
+,cqi_version_a,score_num,answer_count_num,code_block_count,primary_code_len,Reputation
+cqi_version_a,1.0,0.136,0.1,0.05,0.19,-0.001
+score_num,0.136,1.0,0.127,0.1,0.015,0.068
+answer_count_num,0.1,0.127,1.0,0.014,-0.076,0.016
+code_block_count,0.05,0.1,0.014,1.0,0.065,0.093
+primary_code_len,0.19,0.015,-0.076,0.065,1.0,-0.012
+Reputation,-0.001,0.068,0.016,0.093,-0.012,1.0

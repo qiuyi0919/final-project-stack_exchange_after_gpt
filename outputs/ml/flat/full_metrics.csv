@@ -1,0 +1,2 @@
+run_label,target_mode,start_month,end_month,test_auc,test_accuracy,test_f1,best_regParam,best_elasticNetParam,intercept,n_train,n_test
+full,accepted_answer,2019-01,2025-03,0.6881418991910235,0.6382360195207155,0.6338091501735567,0.0,0.0,-0.7308411548727157,987499,247327

@@ -1,0 +1,7 @@
+post_chatgpt,experience_tier,mean_CQI,n_posts,period
+True,intermediate,0.7135966376025251,46797,Post-ChatGPT
+False,intermediate,0.7171228537454056,310743,Pre-ChatGPT
+True,novice,0.718283355820337,132431,Post-ChatGPT
+False,novice,0.6990899654873973,560532,Pre-ChatGPT
+True,expert,0.6940042437798146,26925,Post-ChatGPT
+False,expert,0.7268183480707963,157398,Pre-ChatGPT

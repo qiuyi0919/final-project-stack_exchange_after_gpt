@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Stack Overflow Python CQI Analysis</title>
+    <link rel="stylesheet" href="styles.css?v=3">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar" aria-label="Dashboard header">
+        <div>
+          <p class="eyebrow">MACS 30123 Final Project</p>
+          <h1>Stack Overflow Python CQI Analysis</h1>
+          <p class="lede">A distributed data pipeline, RDD study, and ML robustness layer for measuring Python question quality around the ChatGPT release.</p>
+          <div class="hero-actions">
+            <a class="primary-action" href="#eda">Explore result figures</a>
+            <a class="secondary-action" href="#interactive">Use RDD filters</a>
+          </div>
+        </div>
+        <div class="status-pill">
+          <span class="dot"></span>
+          <span id="dataStatus">Connecting to API</span>
+        </div>
+      </header>
+
+      <nav class="nav-strip" aria-label="Page sections">
+        <a href="#interactive">Interactive RDD</a>
+        <a href="#eda">Dask EDA</a>
+        <a href="#rdd">RDD Figures</a>
+        <a href="#ml">ML Pipeline</a>
+      </nav>
+
+      <section class="overview" aria-label="Project summary">
+        <article>
+          <span>Data source</span>
+          <strong>Stack Overflow Python posts</strong>
+          <p>Curated monthly parquet partitions with CQI, user tier, tag category, code quality, and answer outcomes.</p>
+        </article>
+        <article>
+          <span>Distributed compute</span>
+          <strong>Spark EMR + AWS Dask</strong>
+          <p>PySpark powers ETL and ML; Dask supports scalable EDA and report-ready visualization workflows.</p>
+        </article>
+        <article>
+          <span>Core design</span>
+          <strong>RDD + ML robustness</strong>
+          <p>RDD estimates structural change at the cutoff; supervised and unsupervised ML profile downstream patterns.</p>
+        </article>
+      </section>
+
+      <section id="interactive" class="section-head">
+        <div>
+          <p class="eyebrow">Interactive Analysis</p>
+          <h2>RDD Dashboard</h2>
+        </div>
+        <p>Filter the monthly CQI series by experience tier, tag category, metric, and window. The API-backed chart remains available when the local service is running.</p>
+      </section>
+
+      <section class="controls" aria-label="Filters">
+        <label>
+          <span>Experience tier</span>
+          <select id="tierSelect"></select>
+        </label>
+        <label>
+          <span>Tag category</span>
+          <select id="categorySelect"></select>
+        </label>
+        <label>
+          <span>Metric</span>
+          <select id="metricSelect">
+            <option value="mean_CQI">Mean CQI</option>
+            <option value="n_posts">Post count</option>
+            <option value="mean_score">Mean score</option>
+            <option value="mean_answer_count">Mean answer count</option>
+          </select>
+        </label>
+        <label>
+          <span>Window</span>
+          <select id="windowSelect">
+            <option value="all">Full sample</option>
+            <option value="cutoff">2021-12 to 2023-12</option>
+            <option value="post">Post-ChatGPT only</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="metrics" aria-label="Summary metrics">
+        <article>
+          <span>Months</span>
+          <strong id="monthsValue">-</strong>
+        </article>
+        <article>
+          <span>Posts</span>
+          <strong id="postsValue">-</strong>
+        </article>
+        <article>
+          <span>Mean CQI</span>
+          <strong id="cqiValue">-</strong>
+        </article>
+        <article>
+          <span>RDD beta</span>
+          <strong id="betaValue">-</strong>
+        </article>
+      </section>
+
+      <section class="grid">
+        <article class="panel wide">
+          <div class="panel-head">
+            <div>
+              <h2>Monthly Trend</h2>
+              <p id="trendSubtitle">Filtered monthly series with ChatGPT cutoff marker.</p>
+            </div>
+            <span class="legend"><i></i> Selected metric</span>
+          </div>
+          <div id="trendChart" class="chart" role="img" aria-label="Monthly trend chart"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>RDD Estimate</h2>
+              <p>Immediate post-cutoff coefficient with confidence interval.</p>
+            </div>
+          </div>
+          <div id="rddChart" class="chart compact" role="img" aria-label="RDD estimate chart"></div>
+          <dl class="result-list">
+            <div><dt>p-value</dt><dd id="pValue">-</dd></div>
+            <div><dt>95% CI</dt><dd id="ciValue">-</dd></div>
+            <div><dt>RDD posts</dt><dd id="rddPosts">-</dd></div>
+          </dl>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Pipeline</h2>
+              <p>Distributed path from raw Stack Overflow posts to report outputs.</p>
+            </div>
+          </div>
+          <ol class="pipeline">
+            <li><span>1</span>Stream XML archive batches</li>
+            <li><span>2</span>Write S3 parquet partitions</li>
+            <li><span>3</span>Run Spark CQI feature ETL</li>
+            <li><span>4</span>Estimate RDD and ML models</li>
+            <li><span>5</span>Publish figures and dashboard</li>
+          </ol>
+        </article>
+      </section>
+
+      <section id="eda" class="section-head result-intro">
+        <div>
+          <p class="eyebrow">Interactive Result Explorer</p>
+          <h2>Dask EDA, RDD, and ML Figures</h2>
+        </div>
+        <p>Use the controls to focus the evidence library by module, analysis type, and keyword. Select a figure to inspect it in the large viewer.</p>
+      </section>
+
+      <section class="explorer" aria-label="Interactive figure explorer">
+        <aside class="explorer-panel">
+          <label>
+            <span>Module</span>
+            <select id="figureModuleSelect">
+              <option value="all">All modules</option>
+              <option value="eda">Dask EDA</option>
+              <option value="rdd">RDD</option>
+              <option value="ml">ML pipeline</option>
+            </select>
+          </label>
+          <label>
+            <span>Analysis type</span>
+            <select id="figureTypeSelect">
+              <option value="all">All types</option>
+              <option value="trend">Trends</option>
+              <option value="distribution">Distributions</option>
+              <option value="model">Model diagnostics</option>
+              <option value="cluster">Clustering</option>
+            </select>
+          </label>
+          <label>
+            <span>Search</span>
+            <input id="figureSearch" type="search" placeholder="Try CQI, KMeans, confidence...">
+          </label>
+          <label class="toggle-row">
+            <input id="featuredOnly" type="checkbox">
+            <span>Featured only</span>
+          </label>
+          <div class="explorer-count">
+            <strong id="figureCount">0</strong>
+            <span>figures in view</span>
+          </div>
+        </aside>
+
+        <article class="viewer" aria-label="Selected figure viewer">
+          <div class="viewer-head">
+            <div>
+              <p id="viewerKicker">Select a figure</p>
+              <h2 id="viewerTitle">Result viewer</h2>
+            </div>
+            <button id="openFigureButton" class="ghost-button" type="button">Open large</button>
+          </div>
+          <button id="viewerImageButton" class="viewer-image-button" type="button">
+            <img id="viewerImage" src="../outputs/ml/visualizations/ml_supervised_metrics_smoke_full.png" alt="Selected result figure">
+          </button>
+          <p id="viewerDescription" class="viewer-description">Choose a card below to inspect the figure and its interpretation.</p>
+          <div id="viewerTags" class="tag-row"></div>
+        </article>
+      </section>
+
+      <section class="gallery interactive-gallery" aria-label="Filterable figure cards">
+        <div id="figureGrid" class="figure-grid interactive"></div>
+      </section>
+
+      <section id="rdd" class="insight-board" aria-label="Guided interpretation">
+        <article>
+          <p class="eyebrow">How to Read</p>
+          <h2>Suggested Exploration Path</h2>
+          <ol class="guided-list">
+            <li><span>1</span>Start with Dask EDA trends to understand baseline CQI movement and sample composition.</li>
+            <li><span>2</span>Move to RDD figures to inspect cutoff-local changes and uncertainty.</li>
+            <li><span>3</span>Finish with ML figures to assess whether CQI and metadata predict accepted answers or latent clusters.</li>
+          </ol>
+        </article>
+        <article>
+          <p class="eyebrow">Key Model Outputs</p>
+          <h2>ML Snapshot</h2>
+          <div class="ml-summary compact-summary">
+            <article><span>Full supervised AUC</span><strong>0.688</strong></article>
+            <article><span>Full accuracy</span><strong>0.638</strong></article>
+            <article><span>Full KMeans silhouette</span><strong>0.474</strong></article>
+            <article><span>Full ML rows</span><strong>1.23M</strong></article>
+          </div>
+        </article>
+      </section>
+
+      <section id="ml" class="gallery" aria-label="ML output figures">
+        <div class="gallery-head">
+          <div>
+            <p class="eyebrow">Spark ML + Dask Visualization</p>
+            <h2>Featured ML Figures</h2>
+          </div>
+          <p>A compact spotlight view for the final robustness section.</p>
+        </div>
+        <div id="mlSpotlightGrid" class="figure-grid interactive"></div>
+      </section>
+    </main>
+    <dialog id="figureDialog" class="figure-dialog">
+      <button id="closeFigureDialog" class="dialog-close" type="button" aria-label="Close large figure">×</button>
+      <img id="dialogImage" src="../outputs/ml/visualizations/ml_supervised_metrics_smoke_full.png" alt="Large selected figure">
+      <div>
+        <p id="dialogKicker"></p>
+        <h2 id="dialogTitle"></h2>
+        <p id="dialogDescription"></p>
+      </div>
+    </dialog>
+    <script src="app.js?v=3"></script>
+  </body>
+</html>
