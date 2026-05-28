@@ -3,10 +3,6 @@
 ## Live Resources
 
 - **Interactive dashboard:** [https://cqi-dashboard.onrender.com/frontend/index.html](https://cqi-dashboard.onrender.com/frontend/index.html)
-- **Interactive RDD filters:** [dashboard#interactive](https://cqi-dashboard.onrender.com/frontend/index.html#interactive)
-- **Result explorer:** [dashboard#eda](https://cqi-dashboard.onrender.com/frontend/index.html#eda)
-- **ML spotlight:** [dashboard#ml](https://cqi-dashboard.onrender.com/frontend/index.html#ml)
-- **API metadata endpoint:** [https://cqi-dashboard.onrender.com/metadata](https://cqi-dashboard.onrender.com/metadata)
 - **Deployment repo:** [YanjingAveryLi/cqi-dashboard](https://github.com/YanjingAveryLi/cqi-dashboard)
 
 ---
