@@ -29,7 +29,34 @@ Beyond the raw ETL, the analysis pipeline involves distributed filtering and agg
 
 ## Team Contributions
 
-**Qiuyi** was responsible for the data ingestion, ETL pipeline, and CQI feature construction infrastructure. **Yanjing** was responsible for exploratory data analysis, regression discontinuity estimation, machine learning, visualization, and the deployed API and dashboard. Each member's contributions are described in detail below.
+**Qiuyi** was responsible for the data ingestion, ETL pipeline, and CQI feature construction infrastructure. **Yanjing** was responsible for exploratory data analysis, regression discontinuity estimation, machine learning, visualization, and the deployed API and dashboard.
+
+```mermaid
+flowchart TD
+    RAW["🗜️ Stack Overflow Archive\n60M+ posts · 7z compressed"]
+
+    subgraph Q ["Part 1 — Data Ingestion & ETL · Qiuyi"]
+        S3["☁️ S3 Batches\nposts_batch_*.xml.gz"]
+        LAMBDA["⚡ AWS Lambda\nDynamoDB manifest · SQS queue"]
+        EMR["⚙️ PySpark on AWS EMR\nXML parse · CQI features · tier tagging"]
+    end
+
+    PARQUET[("📦 posts_cqi_with_tier\n2.6M Python posts · Parquet by year_month")]
+
+    subgraph Y ["Part 2 — Analysis, ML & Deployment · Yanjing"]
+        EDA["🔍 Dask EDA\nmonthly trends · distributions"]
+        RDD["📈 Spark RDD Regression\n15 tier × category estimates"]
+        ML["🤖 Spark ML\nSupervised · KMeans clustering"]
+        DASH["🌐 FastAPI + SQLite\nInteractive Dashboard on Render"]
+    end
+
+    RAW -->|stream & split| S3
+    S3 -->|S3 event trigger| LAMBDA
+    LAMBDA -->|SQS batch messages| EMR
+    EMR --> PARQUET
+    PARQUET --> EDA & RDD & ML
+    EDA & RDD & ML --> DASH
+```
 
 ---
 
