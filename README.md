@@ -3,6 +3,9 @@
 ## Live Resources
 
 - **Interactive dashboard:** [https://cqi-dashboard.onrender.com/frontend/index.html](https://cqi-dashboard.onrender.com/frontend/index.html)
+
+* Need time to initialize if you first open this link
+
 - **Deployment repo:** [YanjingAveryLi/cqi-dashboard](https://github.com/YanjingAveryLi/cqi-dashboard)
 
 ## Research Problem
@@ -91,14 +94,80 @@ The raw Stack Overflow data is distributed as a 7z-compressed XML archive. Qiuyi
 
 The results do not cleanly vindicate either hypothesis. Instead, they reveal a more granular structural shift in which the effects of ChatGPT differ substantially by user experience level and topic domain.
 
+### Pipeline Output
+
+All batches were processed successfully on AWS EMR. The completion notification below confirms end-to-end pipeline execution across the full 2.6M-post dataset.
+
+![Completion notification email after all batches processed](outputs/email.png)
+
+### EDA: Volume Collapse and Quality Shift
+
+Monthly Python question volume on Stack Overflow peaked at roughly 87,000 questions per month before falling to fewer than 50,000 by end of 2024 — a level not seen since the platform's early years. The drop accelerated sharply after November 2022. Despite this volume collapse, mean CQI trended upward in the same period, which initially appears consistent with the quality-improvement hypothesis.
+
+Breaking the data down by experience tier reveals a more complicated picture. Expert users saw their CQI fall from 0.727 to 0.694 after ChatGPT, while novice users saw theirs rise from 0.699 to 0.718. Meanwhile, expert post volume collapsed by 83% — faster than the 76% drop for novices. The aggregate quality signal is therefore partly an artifact of composition: the platform lost its most experienced voices disproportionately fast. Tag-category trends show further heterogeneity, with data science and web categories exhibiting clearer upward CQI trajectories than ml/AI categories.
+
+<table>
+<tr>
+<td><img src="outputs/dask_eda/aws_full_compact/viz1_monthly_counts_mean_cqi.png" width="100%"><br><em>Monthly post volume and mean CQI (2008–2024)</em></td>
+<td><img src="outputs/dask_eda/aws_full_compact/viz3_prepost_cqi_by_tier.png" width="100%"><br><em>Pre/post ChatGPT CQI by experience tier</em></td>
+</tr>
+<tr>
+<td><img src="outputs/dask_eda/aws_full_compact/viz4_tag_category_cqi_trends.png" width="100%"><br><em>CQI trends by tag category</em></td>
+<td><img src="outputs/dask_eda/aws_full_compact/viz2_cqi_distribution_by_tier.png" width="100%"><br><em>CQI distribution by experience tier</em></td>
+</tr>
+<tr>
+<td><img src="outputs/dask_eda/aws_full_compact/viz5_code_length_distribution.png" width="100%"><br><em>Code length distribution</em></td>
+<td><img src="outputs/dask_eda/aws_full_compact/viz6_score_vs_cqi_density.png" width="100%"><br><em>Score vs CQI density</em></td>
+</tr>
+<tr>
+<td><img src="outputs/dask_eda/aws_full_compact/viz7_answer_count_vs_cqi_density.png" width="100%"><br><em>Answer count vs CQI density</em></td>
+<td></td>
+</tr>
+</table>
+
+### RDD, Clustering, and ML Results
+
 **Quality improved in applied domains — but not uniformly.** The RDD estimates show statistically significant CQI increases post-December 2022 in five of fifteen tier-category combinations. The largest effects are concentrated in data science and web categories: intermediate-tier data science posts increased by β = 0.105 (p = 0.002), expert-tier data science by β = 0.095 (p = 0.005), expert-tier web by β = 0.064 (p = 0.039), and intermediate-tier web by β = 0.055 (p = 0.039). The most striking single estimate is novice-tier automation, which increased by β = 0.111 (p = 0.0003) — the largest beta in the entire table. These gains are consistent with the quality-improvement hypothesis: AI tools may be helping users in structured, code-heavy domains produce better-formed questions before posting.
 
 **The ml_ai category is the notable exception.** Despite being the domain most adjacent to AI tools, the ml/AI tag category shows no significant post-cutoff CQI change across any experience tier, with point estimates slightly negative for both novice (β = −0.011) and intermediate (β = −0.012) users. This suggests that AI-assisted question writing has not improved the quality of questions in the very domain where users are most likely to be using AI tools — possibly because ML/AI questions tend to be more open-ended and harder to structure, or because these users were already posting high-complexity questions before ChatGPT.
 
 **Expert users' CQI went down.** The pre/post comparison by experience tier reveals a pattern that directly challenges the quality-improvement narrative. Expert users saw a raw CQI decline from 0.727 (pre-ChatGPT) to 0.694 (post-ChatGPT), while novice users showed the opposite: 0.699 before to 0.718 after. Expert post volume collapsed from 157,398 to 26,925 — an 83% drop — while novice volume fell from 560,532 to 132,431, a 76% drop. The platform lost its most experienced users proportionally faster than it lost novices. The aggregate CQI improvements seen in some domain-tier combinations therefore cannot be explained by a simple exit of low-quality novice questions.
 
+<table>
+<tr>
+<td><img src="outputs/emr/cqi_trend_by_tier.png" width="100%"><br><em>CQI trend by experience tier</em></td>
+<td><img src="outputs/emr/beta_heatmap.png" width="100%"><br><em>RDD beta heatmap (tier × category)</em></td>
+</tr>
+<tr>
+<td><img src="outputs/emr/rdd_confidence_intervals.png" width="100%"><br><em>RDD confidence intervals</em></td>
+<td><img src="outputs/emr/rdd_novice_data_science.png" width="100%"><br><em>RDD example: novice × data science</em></td>
+</tr>
+</table>
+
 **Clustering reveals a structural shift toward parseable code.** The KMeans analysis identifies four stable post archetypes. The highest-quality cluster (Cluster 1, n = 290,889) has the highest mean CQI (1.41), a 100% code parseability rate, and the highest post-ChatGPT share in the corpus (19.3%). The lowest-quality cluster (Cluster 3, n = 113,204) contains questions with no code at all, the lowest CQI (0.33), and the lowest acceptance rate (32%). The fact that the fully parseable, high-quality cluster is overrepresented in the post-ChatGPT period suggests AI tools may be raising the floor on code correctness — users who do post code are posting syntactically cleaner examples than before.
 
+<table>
+<tr>
+<td><img src="outputs/ml/visualizations/ml_kmeans_silhouette.png" width="100%"><br><em>KMeans silhouette score</em></td>
+<td><img src="outputs/ml/visualizations/ml_kmeans_full_cluster_profiles.png" width="100%"><br><em>Cluster profiles</em></td>
+</tr>
+<tr>
+<td><img src="outputs/ml/visualizations/ml_kmeans_full_centers_heatmap.png" width="100%"><br><em>Cluster centers heatmap</em></td>
+<td></td>
+</tr>
+</table>
+
 **The supervised ML model confirms CQI signal is real.** A logistic regression trained on CQI and metadata features to predict accepted-answer status achieves AUC = 0.688 on 247,327 held-out posts, confirming that these code quality signals carry genuine predictive information about community-resolution outcomes — they are not merely noise.
+
+<table>
+<tr>
+<td><img src="outputs/ml/visualizations/ml_supervised_metrics_smoke_full.png" width="100%"><br><em>Supervised ML metrics: smoke vs full run</em></td>
+<td><img src="outputs/ml/visualizations/ml_supervised_confusion_matrices.png" width="100%"><br><em>Confusion matrices</em></td>
+</tr>
+<tr>
+<td><img src="outputs/ml/visualizations/ml_supervised_top_coefficients.png" width="100%"><br><em>Top predictive coefficients</em></td>
+<td></td>
+</tr>
+</table>
 
 **Synthesis.** Neither hypothesis fully holds, and the truth is more nuanced than either predicts. In applied, code-heavy domains — data science, web, and automation — question quality rose meaningfully after ChatGPT's release, suggesting that AI tools are genuinely helping users formulate better-structured questions before posting. The platform is not simply shrinking; in these domains it is concentrating around higher-quality contributions. The divergence across domains and experience tiers points toward a transitional period in which AI and community knowledge-sharing are finding a new equilibrium — one where Stack Overflow increasingly serves as a venue for questions that benefit from human expertise rather than those that can be answered by a language model alone.
