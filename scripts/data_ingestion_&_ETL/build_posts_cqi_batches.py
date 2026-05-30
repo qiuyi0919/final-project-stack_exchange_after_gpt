@@ -360,6 +360,7 @@ def process_batch(spark, batch_s3_path, users_tier_df, postlinks_df,
     if window_end:
         df = df.filter(col("year_month") <= window_end)
 
+    df = df.cache()
     n_raw = df.count()
     if n_raw == 0:
         print("  [SKIP] No posts in time window for this batch.", flush=True)
@@ -397,16 +398,12 @@ def process_batch(spark, batch_s3_path, users_tier_df, postlinks_df,
     python_df     = df.filter(col("is_python") == 1)
     non_python_df = df.filter(col("is_python") == 0)
 
-    if python_df.count() > 0:
-        features = python_df.withColumn(
-            "_feat", _extract_python_features_udf(col("Body"))
-        )
-        for feat_col in CODE_FEATURE_SCHEMA.fieldNames():
-            features = features.withColumn(feat_col, col(f"_feat.{feat_col}"))
-        python_df = features.drop("_feat")
-    else:
-        for feat_col in CODE_FEATURE_SCHEMA.fieldNames():
-            python_df = python_df.withColumn(feat_col, lit(None).cast(FloatType()))
+    features = python_df.withColumn(
+        "_feat", _extract_python_features_udf(col("Body"))
+    )
+    for feat_col in CODE_FEATURE_SCHEMA.fieldNames():
+        features = features.withColumn(feat_col, col(f"_feat.{feat_col}"))
+    python_df = features.drop("_feat")
 
     # Non-Python posts: null for all code features
     for feat_col in CODE_FEATURE_SCHEMA.fieldNames():
@@ -417,7 +414,7 @@ def process_batch(spark, batch_s3_path, users_tier_df, postlinks_df,
     # ── 7. CQI normalization (Version A, 7 dimensions) ────────
     cqi_expr = (
         log1p(col("Score").cast("double"))                          * 0.25 +
-        coalesce(col("cyclomatic_complexity").cast("double"), lit(0.0)) * 0.20 +
+        log1p(coalesce(col("cyclomatic_complexity").cast("double"), lit(0.0))) * 0.20 +
         log1p(coalesce(col("halstead_volume").cast("double"), lit(0.0))) * 0.15 +
         coalesce(col("is_parseable").cast("double"), lit(0.0))      * 0.10 +
         log1p(col("AnswerCount").cast("double"))                    * 0.10 +
@@ -437,9 +434,7 @@ def process_batch(spark, batch_s3_path, users_tier_df, postlinks_df,
        .partitionBy("year_month")
        .parquet(output_path))
 
-    n_python = df.filter(col("is_python") == 1).count()
-    print(f"  [OK] Written {n_raw:,} posts ({n_python:,} Python) to {output_path}",
-          flush=True)
+    print(f"  [OK] Written {n_raw:,} posts to {output_path}", flush=True)
     return n_raw
 
 
@@ -464,6 +459,12 @@ def main():
     parser.add_argument("--max-batches",     type=int, default=None)
     parser.add_argument("--window-start",    default="2019-01")
     parser.add_argument("--window-end",      default="2025-03")
+    parser.add_argument("--num-workers",     type=int, default=1,
+                        help="Total parallel workers for --mode s3 (default 1 = serial)")
+    parser.add_argument("--worker-index",    type=int, default=0,
+                        help="This worker's 0-based index, 0 … num-workers-1")
+    parser.add_argument("--evidence-file",   default=None,
+                        help="Local path to write a JSON run summary after completion")
     args = parser.parse_args()
 
     if args.mode == "s3" and not args.posts_batches:
@@ -501,6 +502,13 @@ def main():
         all_batches = list_s3_batches(args.posts_batches, s3)
         if args.max_batches:
             all_batches = all_batches[:args.max_batches]
+        if args.num_workers > 1:
+            all_batches = all_batches[args.worker_index::args.num_workers]
+            print(f"\n[INFO] Worker {args.worker_index}/{args.num_workers}: "
+                  f"{len(all_batches)} batches assigned"
+                  + (f" ({all_batches[0]['batch_id']} … {all_batches[-1]['batch_id']})"
+                     if all_batches else " (none)"),
+                  flush=True)
         batch_iter = iter(all_batches)
         print(f"\n[INFO] {len(all_batches)} batches to process")
     else:
@@ -512,6 +520,7 @@ def main():
     # ── Main batch loop ───────────────────────────────────────
     done_count = 0
     skip_count = 0
+    total_rows = 0
     start_time = datetime.datetime.utcnow()
 
     for batch in batch_iter:
@@ -539,6 +548,7 @@ def main():
             write_checkpoint(args.checkpoint, batch_id, s3)
             update_dynamodb(batch_id, "done", args.dynamodb_table, dynamodb)
             done_count += 1
+            total_rows += n_rows
 
         except Exception as e:
             print(f"  [ERROR] {batch_id}: {e}", flush=True)
@@ -555,8 +565,8 @@ def main():
     print(f" Output    : {args.output}")
     print("=" * 60)
 
-    # ── SNS completion email (--mode sqs only) ────────────────
-    if args.mode == "sqs" and args.sns_topic_arn and done_count > 0:
+    # ── SNS completion email ──────────────────────────────────
+    if args.sns_topic_arn and done_count > 0:
         try:
             boto3.client("sns").publish(
                 TopicArn=args.sns_topic_arn,
@@ -572,6 +582,27 @@ def main():
             print("[OK] SNS completion email sent.", flush=True)
         except Exception as e:
             print(f"[WARN] SNS publish failed: {e}", flush=True)
+
+    # ── Evidence JSON ─────────────────────────────────────────
+    if args.evidence_file:
+        import json as _json, os as _os
+        _os.makedirs(_os.path.dirname(_os.path.abspath(args.evidence_file)), exist_ok=True)
+        summary = {
+            "run_at":          datetime.datetime.utcnow().isoformat() + "Z",
+            "mode":            args.mode,
+            "worker_index":    args.worker_index,
+            "num_workers":     args.num_workers,
+            "batches_done":    done_count,
+            "batches_skipped": skip_count,
+            "total_rows":      total_rows,
+            "duration_min":    round(total_elapsed / 60, 1),
+            "output":          args.output,
+            "checkpoint":      args.checkpoint,
+            "window":          f"{args.window_start} → {args.window_end}",
+        }
+        with open(args.evidence_file, "w") as _f:
+            _json.dump(summary, _f, indent=2)
+        print(f"[OK] Evidence saved → {args.evidence_file}", flush=True)
 
     spark.stop()
 

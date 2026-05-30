@@ -44,19 +44,33 @@ else
     sudo yum install -y p7zip p7zip-plugins
     echo "  [OK]  p7zip installed"
 fi
+if command -v aria2c &>/dev/null; then
+    echo "  [SKIP] aria2c already installed"
+else
+    sudo yum install -y aria2
+    echo "  [OK]  aria2c installed"
+fi
 
-# ── [2/6] Download archive (resumable) ────────────────────────────────────────
+# ── [2/6] Download archive (aria2c multi-connection, resumable) ───────────────
 echo ""
-echo "[2/6] Downloading stackoverflow.com.7z (resumable with -c)..."
+echo "[2/6] Downloading stackoverflow.com.7z (aria2c 16-connection, resumable)..."
 if [[ -f "$ARCHIVE" ]]; then
     SIZE_BYTES=$(stat -c%s "$ARCHIVE" 2>/dev/null || stat -f%z "$ARCHIVE")
     SIZE_GB=$(echo "scale=1; $SIZE_BYTES/1073741824" | bc)
-    echo "  Archive exists: ${ARCHIVE} (${SIZE_GB} GB)"
-    echo "  Running wget -c to verify / resume if incomplete..."
+    echo "  Archive exists: ${ARCHIVE} (${SIZE_GB} GB) — resuming if incomplete..."
 fi
-wget -c --progress=dot:giga \
-    "$ARCHIVE_URL" \
-    -O "$ARCHIVE"
+aria2c \
+    --continue=true \
+    --max-connection-per-server=16 \
+    --split=16 \
+    --min-split-size=1M \
+    --max-tries=5 \
+    --retry-wait=10 \
+    --console-log-level=notice \
+    --summary-interval=30 \
+    --dir="$(dirname "$ARCHIVE")" \
+    --out="$(basename "$ARCHIVE")" \
+    "$ARCHIVE_URL"
 echo "  [OK]  ${ARCHIVE}"
 
 # ── [3/6] Verify archive contents ─────────────────────────────────────────────
@@ -96,16 +110,18 @@ echo ""
 # We do this because stdin is already used by the pipe from 7za,
 # so we cannot use a heredoc (<<) to feed Python at the same time.
 cat > "$PYHELPER" << 'PYEOF'
-import sys, os, gzip, subprocess
+import sys, os, gzip, subprocess, threading
 
 BUCKET         = os.environ["BUCKET"]
 ROWS_PER_BATCH = int(os.environ.get("ROWS_PER_BATCH", "1000000"))
 MAX_BATCHES    = int(os.environ.get("MAX_BATCHES", "0"))   # 0 = unlimited
 PREFIX         = "raw/stackoverflow/posts_batches"
 
-batch_num = 0
-buffer    = []
-manifest  = []
+batch_num    = 0
+buffer       = []
+manifest     = []
+_prev_thread = None
+_upload_err  = [None]
 
 def flush_batch(n, buf):
     name   = f"posts_batch_{n:05d}.xml.gz"
@@ -117,15 +133,36 @@ def flush_batch(n, buf):
         capture_output=True
     )
     if result.returncode != 0:
-        sys.exit(f"\n[ERROR] S3 upload failed for {name}:\n{result.stderr.decode()}")
+        _upload_err[0] = f"\n[ERROR] S3 upload failed for {name}:\n{result.stderr.decode()}"
+        return None
     size_kb = len(data) // 1024
     print(f"  [DONE] {name}  rows={len(buf):,}  compressed={size_kb:,} KB", flush=True)
     return name
 
+def _join_prev():
+    global _prev_thread
+    if _prev_thread is not None:
+        _prev_thread.join()
+        _prev_thread = None
+    if _upload_err[0]:
+        sys.exit(_upload_err[0])
+
+def launch_upload(n, buf):
+    # Wait for any in-flight upload before starting the next one (pipeline depth 1).
+    # This lets the main loop read batch N+1 from stdin while batch N compresses+uploads.
+    _join_prev()
+    def _run():
+        name = flush_batch(n, buf)
+        if name:
+            manifest.append(name)
+    global _prev_thread
+    _prev_thread = threading.Thread(target=_run, daemon=True)
+    _prev_thread.start()
+
 for line in sys.stdin.buffer:
     buffer.append(line)
     if len(buffer) >= ROWS_PER_BATCH:
-        manifest.append(flush_batch(batch_num, buffer))
+        launch_upload(batch_num, buffer)
         batch_num += 1
         buffer = []
         if MAX_BATCHES and batch_num >= MAX_BATCHES:
@@ -133,7 +170,9 @@ for line in sys.stdin.buffer:
             break
 
 if buffer and not (MAX_BATCHES and batch_num >= MAX_BATCHES):
-    manifest.append(flush_batch(batch_num, buffer))
+    launch_upload(batch_num, buffer)
+
+_join_prev()   # wait for the final upload to complete
 
 with open("posts_batch_manifest.txt", "w") as f:
     f.write("\n".join(manifest) + "\n")
