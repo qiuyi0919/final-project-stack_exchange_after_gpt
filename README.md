@@ -63,16 +63,22 @@ flowchart LR
 
 ## Part 1: Data Ingestion and ETL Pipeline (Qiuyi)
 
-**Code:** [`scripts/data_ingestion_&_ETL/`](scripts/data_ingestion_&_ETL/)  
-**Outputs:** [`outputs/data_ingestion_&_ETL/`](outputs/data_ingestion_&_ETL/)
+**v1 (Single spark-submit — fully validated):**  
+Code: [`scripts/data_ingestion_&_ETL_v1/`](scripts/data_ingestion_&_ETL_v1/) · Outputs: [`outputs/data_ingestion_&_ETL_v1/`](outputs/data_ingestion_&_ETL_v1/)
 
-The raw Stack Overflow data is distributed as a 7z-compressed XML archive. Qiuyi designed and implemented a three-phase automated ingestion pipeline to convert this archive into analysis-ready partitioned Parquet.
+**v2 (Concurrent spark-submit workers — smoke-test validated):**  
+Code: [`scripts/data_ingestion_&_ETL_v2/`](scripts/data_ingestion_&_ETL_v2/) · Outputs: [`outputs/data_ingestion_&_ETL_v2/`](outputs/data_ingestion_&_ETL_v2/)
 
-**Phase 1: Streaming ingest to S3.** [`stream_posts_to_s3_batches.sh`](scripts/data_ingestion_&_ETL/stream_posts_to_s3_batches.sh) streams the `Posts.xml` file out of the compressed archive using `7za`, pipes each XML row through `awk` to filter post records, and uses GNU `split` to partition the stream into batches of one million rows each. Each batch is immediately gzip-compressed and uploaded to S3, allowing ingestion and downstream processing to proceed concurrently without materializing the full decompressed archive on disk.
+The raw Stack Overflow data is distributed as a 7z-compressed XML archive (~64 GB). Qiuyi designed and implemented a three-phase automated ingestion pipeline to convert this archive into analysis-ready partitioned Parquet, and then extended it with a parallel execution framework.
 
-**Event-driven batch tracking.** [`lambda_function.py`](scripts/data_ingestion_&_ETL/lambda_function.py) implements an AWS Lambda function triggered by S3 put events. On each batch upload, Lambda writes a manifest entry to DynamoDB (recording batch ID, S3 path, size, upload timestamp, and status) and enqueues an SQS message to notify the Spark ETL job. This event-driven architecture decouples ingestion from processing and provides durable batch-level lineage tracking.
+**Phase 1: Streaming ingest to S3.** [`stream_posts_to_s3_batches.sh`](scripts/data_ingestion_&_ETL_v2/stream_posts_to_s3_batches.sh) streams `Posts.xml` out of the 7z archive using `7za`, filters post records, and splits the stream into batches of one million rows each. Each batch is gzip-compressed and uploaded to S3 via an async threading pipeline (one upload runs in the background while the next batch is read from stdin), overlapping I/O and network operations. The v2 version replaces the original `wget` single-connection download with `aria2c` (16 parallel connections), reducing the 64 GB download time by 3/4.
 
-**Phase 2: Spark ETL and CQI feature construction.** [`build_posts_cqi_batches.py`](scripts/data_ingestion_&_ETL/build_posts_cqi_batches.py) is the core PySpark job, designed to run on AWS EMR. It supports two execution modes: an `s3` mode that processes completed batches sequentially, and an `sqs` mode that consumes SQS messages in real time and can run concurrently with Phase 1 for a fully automated end-to-end chain. For each batch, the job parses raw XML attributes, filters to Python questions, joins with user reputation data to assign experience tiers (novice: <100 reputation; intermediate: 100–1000; expert: >1000), and assigns tag-based topic categories. Critically, it computes a rich set of code quality features using `pandas_udf` for distributed Python execution: code block count and primary code length extracted via `BeautifulSoup`, **cyclomatic complexity** computed by `radon`, **Halstead volume** as a measure of code information content, and **AST parseability** as a binary indicator of syntactic correctness. These features are combined into the Code Quality Index (CQI). The processed output is written as Parquet partitioned by `year_month`, producing the 2.6-million-post dataset that feeds all downstream analysis.
+**Event-driven batch tracking.** [`lambda_function.py`](scripts/data_ingestion_&_ETL_v2/lambda_function.py) implements an AWS Lambda function triggered by S3 put events. On each batch upload, Lambda writes a manifest entry to DynamoDB (batch ID, S3 path, size, upload timestamp, and status) and enqueues an SQS message to notify the Spark ETL job. This event-driven architecture decouples ingestion from processing and provides durable batch-level lineage tracking.
+
+**Phase 2: Spark ETL and CQI feature construction.** [`build_posts_cqi_batches.py`](scripts/data_ingestion_&_ETL_v2/build_posts_cqi_batches.py) is the core PySpark job running on AWS EMR. It supports two execution modes: `s3` mode (completed batches) and `sqs` mode (real-time SQS consumption, concurrent with Phase 1). For each batch it parses raw XML, filters to Python questions, joins with user reputation to assign experience tiers (novice: <100; intermediate: 100–1000; expert: >1000), and computes a rich set of code quality features via `pandas_udf`: code block count and primary code length (`BeautifulSoup`), **cyclomatic complexity** (`radon`), **Halstead volume**, and **AST parseability**. These features form the Code Quality Index (CQI). Output is written as Parquet partitioned by `year_month`. The v2 version adds `--num-workers` / `--worker-index` flags for round-robin batch partitioning across concurrent `spark-submit` processes, and an `--evidence-file` flag that writes a JSON run summary (batches done, total rows, duration, S3 paths) upon completion.
+
+**Parallel execution framework (v2).** [`launch_parallel_etl.py`](scripts/data_ingestion_&_ETL_v2/launch_parallel_etl.py) launches N concurrent `spark-submit` workers, each processing a disjoint round-robin slice of the batch list — analogous to the parallel EC2 crawlers from Assignment 2. The existing S3 checkpoint mechanism (`{batch_id}.done` marker files) ensures idempotency: no batch is processed twice even across restarts or parallel workers. After all workers complete, per-worker JSON summaries are merged into a single `run_summary_merged.json`. The smoke test (2 batches across 4 workers, 0.9 minutes) confirmed correct batch assignment and checkpoint safety; full-scale validation was blocked by **AWS Academy's Python package distribution constraints on YARN executor nodes** — bootstrap actions failed to propagate `beautifulsoup4` and `radon` to core nodes in the sandboxed environment (see [`outputs/data_ingestion_&_ETL_v2/smoke_phase2_summary.json`](outputs/data_ingestion_&_ETL_v2/smoke_phase2_summary.json)). The serial v1 results are used for all downstream analysis.
+
 
 ## Part 2: Analysis, Machine Learning, and Deployment (Yanjing)
 
@@ -96,9 +102,11 @@ The results do not cleanly vindicate either hypothesis. Instead, they reveal a m
 
 ### Pipeline Output
 
-All batches were processed successfully on AWS EMR. The completion notification below confirms end-to-end pipeline execution across the full 2.6M-post dataset.
+All 61 batches (181,893 Parquet objects, 1.56 GB) were processed successfully on AWS EMR using the v1 serial pipeline. The SNS completion email below confirms end-to-end execution across the full 2.6M-post dataset.
 
-![Completion notification email after all batches processed](outputs/email.png)
+![Completion notification email after all batches processed](outputs/data_ingestion_&_ETL_v1/phase2_email_fullrun.jpg)
+
+> **Note:** The email reports 8 batches processed rather than 61 because Phase 2 ran in multiple sessions interrupted by network disconnections mid-run; each session sent a separate SNS notification. All 61 batches were completed in full — see [`outputs/data_ingestion_&_ETL_v1/batch_checkpoint_manifest.txt`](outputs/data_ingestion_&_ETL_v1/batch_checkpoint_manifest.txt) for the complete checkpoint record.
 
 ### EDA: Volume Collapse and Quality Shift
 
